@@ -24,6 +24,10 @@ import re
 import time
 import tldextract
 
+from bs4 import BeautifulSoup as BS4
+# from re import sub as re_sub
+from pandas import DataFrame as pd_dataframe
+
 __all__  = ['LoginError', 'GoDaddyClient', 'GoDaddyAccount']
 
 logger = logging.getLogger(__name__)
@@ -118,24 +122,51 @@ class GoDaddyClient(object):
         return re.compile(r'''GoToZoneEdit\('([^']+)''').findall(html)
 
     def find_dns_records(self, domain, record_type='A'):
-        """ find all dns reocrds of a given domain
+        """ find all dns records of a given domain
 
         :param domain: a typical domain name, e.g. "example.com"
         :returns: a dict of (hostname -> DNSRecord)
         """
         html = self.session.get(self.zonefile_url.format(domain=domain)).text
 
-        #Update the security token while we're at it.
-        sec_pattern = 'nonce=\"([0-9A-Za-z]+)\"'
-        self.sec = re.compile(sec_pattern).findall(html)[0]
+        if record_type=='A':
+            #Update the security token while we're at it.
+            sec_pattern = 'nonce=\"([0-9A-Za-z]+)\"'
+            self.sec = re.compile(sec_pattern).findall(html)[0]
 
-        pattern = "Undo{rt}Edit\\('tbl{rt}Records_([0-9]+)', '([^']+)', '([^']+)', '([^']+)', '([^']+)', '([^']+)', '([^']+)'\\)".format(rt=record_type)
-        try:
-            results = map(DNSRecord._make, re.compile(pattern).findall(html))
-        except:
-            logger.exception('find domains broken, maybe godaddy has changed its web structure')
-            return []
-        return results
+            pattern = "Undo{rt}Edit\\('tbl{rt}Records_([0-9]+)', '([^']+)', '([^']+)', '([^']+)', '([^']+)', '([^']+)', '([^']+)'\\)".format(rt=record_type)
+            try:
+                results = map(DNSRecord._make, re.compile(pattern).findall(html))
+            except:
+                logger.exception('find domains broken, maybe godaddy has changed its web structure')
+                return []
+            return results
+
+        else:
+
+            # available records: ['A','CNAME','MX','TXT','SRV','AAAA','NS']
+            try:
+                assert ['CNAME'].count(record_type.upper())
+            except:
+                logger.exception(       'package development incomplete.  currently not handling "%s" records' % record_type)
+                return []
+
+            h                       =   BS4( BS4(html).encode('ascii') )
+            r_table                 =   h.find_all('table',id=re.compile('tbl%sRecords' % record_type.upper()))[0]
+            tbl_headers             =   r_table.tr.text
+            tbl_headers             =   re.sub(r'[^\u0000-\u007F\s]+','', tbl_headers)
+            tbl_headers             =   re.sub(r'[\n]+','\n', tbl_headers).strip().split('\n')
+            tbl_headers             =   [it.strip() for it in tbl_headers if it.strip()]
+            
+            df                      =   pd_dataframe(columns=tbl_headers)
+
+            tbl_items               =   r_table.find_all('tr',attrs={'lstindex':True})
+            for row in tbl_items:
+                cols                =   row.find_all('input',attrs={"type":"hidden"})[1:] #skipping checkmark col
+                new_vals            =   [ v.attrs['value'] for v in cols ]
+                df                  =   df.append(dict(zip(tbl_headers,new_vals)),ignore_index=True)
+
+            return df
 
     def update_dns_record(self, hostname, value, record_type='A', new=True):
         """ Update a dns record
@@ -152,6 +183,9 @@ class GoDaddyClient(object):
         prefix, domain = self._split_hostname(hostname)
 
         records = list(self.find_dns_records(domain, record_type))
+
+        #from ipdb import set_trace as i_trace; i_trace()
+
         for record in records:
             if record.hostname == prefix:
                 if record.value != value:
