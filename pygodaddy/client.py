@@ -121,7 +121,7 @@ class GoDaddyClient(object):
         html = self.session.get(self.default_url).text
         return re.compile(r'''GoToZoneEdit\('([^']+)''').findall(html)
 
-    def find_dns_records(self, domain, record_type='A'):
+    def find_dns_records(self, domain, record_type='A',dataframe=True):
         """ find all dns records of a given domain
 
         :param domain: a typical domain name, e.g. "example.com"
@@ -166,7 +166,13 @@ class GoDaddyClient(object):
                 new_vals            =   [ v.attrs['value'] for v in cols ]
                 df                  =   df.append(dict(zip(tbl_headers,new_vals)),ignore_index=True)
 
-            return df
+            df.index               +=   1  #adjusting index to coincide with godaddy index
+            
+            if dataframe==True:         return df
+            else:
+                DNSRecord = namedtuple('DNSRecord', 'index, hostname, value, ttl, host_td, points_to, rec_modified')
+                pattern = "\\('tbl{rt}Records_([0-9]+)', '([^']+)', '([^']+)', '([^']+)', '([^']+)', '([^']+)', '([^']+)'\\)".format(rt=record_type)
+                results = map(DNSRecord._make, re.compile(pattern).findall(html))
 
     def update_dns_record(self, hostname, value, record_type='A', new=True):
         """ Update a dns record
@@ -182,7 +188,7 @@ class GoDaddyClient(object):
 
         prefix, domain = self._split_hostname(hostname)
 
-        records = list(self.find_dns_records(domain, record_type))
+        records = list(self.find_dns_records(domain, record_type,dataframe=False))
 
         #from ipdb import set_trace as i_trace; i_trace()
 
@@ -224,7 +230,7 @@ class GoDaddyClient(object):
 
         prefix, domain = self._split_hostname(hostname)
 
-        for record in self.find_dns_records(domain, record_type):
+        for record in self.find_dns_records(domain, record_type,dataframe=False):
             if record.hostname == prefix:
                 if not self._delete_record(record.index, record_type=record_type):
                     return False
