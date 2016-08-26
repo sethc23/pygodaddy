@@ -16,6 +16,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+
 from collections import defaultdict, namedtuple
 
 import requests
@@ -43,18 +44,18 @@ class GoDaddyAccount(object):
     Usage:
 
     >>> from pygodaddy import GoDaddyAccount
-    >>> with GoDaddyAccount(username, password) as client:
+    >>> with GoDaddyAccount(api_key, secret) as client:
     ...    client.update_dns_record('sub1.exmaple.com', '1.2.3.4')
     ...    client.update_dns_record('sub2.exmaple.com', '1.2.3.5')
     """
-    def __init__(self, username, password):
-        self.username = username
-        self.password = password
+    def __init__(self, api_key, secret):
+        self.api_key = api_key
+        self.secret = secret
         self.client = None
 
     def __enter__(self):
         self.client = GoDaddyClient()
-        if not self.client.login(self.username, self.password):
+        if not self.client.login(self.api_key, self.secret):
             # set client to `None`, force context manager to fail quickly
             self.client = None
         return self.client
@@ -70,7 +71,7 @@ class GoDaddyClient(object):
 
     >>> from pygodaddy import GoDaddyClient
     >>> client = GoDaddyClient()
-    >>> if client.login(username, password):
+    >>> if client.login(api_key, secret):
     ...     client.update_dns_record('sub.example.com', '1.2.3.4')
     """
     def __init__(self):
@@ -93,28 +94,30 @@ class GoDaddyClient(object):
         return self.logged_in
 
 
-    def login(self, username, password):
+    def login(self, api_key, secret):
         """ Login to a godaddy account
 
-        :param username: godaddy username
-        :param password: godaddy password
+        :param api_key: godaddy api_key
+        :param secret: godaddy secret
         :returns:  `True` if login is successful, else `False`
         """
-        r = self.session.get(self.default_url)
+        r = self.session.get(self.default_url, 
+                             headers={"Authorization": "sso-key %s:%s" % (self.api_key, self.secret)})
         try:
             viewstate = re.compile(r'id="__VIEWSTATE" value="([^"]+)"').search(r.text).group(1)
         except:
             logger.exception('Login routine broken, godaddy may have updated their login mechanism')
             return False
-        data = {
-                'Login$userEntryPanel2$LoginImageButton.x' : 0,
-                'Login$userEntryPanel2$LoginImageButton.y' : 0,
-                'Login$userEntryPanel2$UsernameTextBox' : username,
-                'Login$userEntryPanel2$PasswordTextBox' : password,
-                '__VIEWSTATE': viewstate,
-        }
-        r = self.session.post(r.url, data=data)
-        return self.is_loggedin(r.text)
+        # data = {
+        #         'Login$userEntryPanel2$LoginImageButton.x' : 0,
+        #         'Login$userEntryPanel2$LoginImageButton.y' : 0,
+        #         'Login$userEntryPanel2$UsernameTextBox' : username,
+        #         'Login$userEntryPanel2$PasswordTextBox' : password,
+        #         '__VIEWSTATE': viewstate,
+        # }
+        # r = self.session.post(r.url, data=data)
+        # return self.is_loggedin(r.text)
+        return
 
     def find_domains(self):
         """ return all domains of user """
